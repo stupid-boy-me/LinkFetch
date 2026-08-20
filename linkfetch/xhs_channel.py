@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 import httpx
 from yt_dlp import YoutubeDL
 
+from linkfetch.ffmpeg_util import apply_ffmpeg_opts
 from linkfetch.http_download import download_url, safe_filename
 from linkfetch.models import FormatOption, MediaInfo
 
@@ -53,7 +54,7 @@ def _ydl_opts(outdir: str, cookies_file: str = "") -> dict[str, Any]:
     }
     if cookies_file and os.path.isfile(cookies_file):
         opts["cookiefile"] = cookies_file
-    return opts
+    return apply_ffmpeg_opts(opts)
 
 
 def _collect_formats(info: dict[str, Any]) -> list[FormatOption]:
@@ -221,6 +222,135 @@ def extract_xhs(
         formats=formats,
         raw={"media_urls": media_urls, "channel": "xhs", "cookies_file": session_cookies},
     )
+
+
+def extract_xhs_images(
+    url: str,
+    *,
+    cookies_file: str = "",
+    log: Optional[LogCallback] = None,
+    cancel_flag: Optional[Callable[[], bool]] = None,
+) -> MediaInfo:
+    """Parse Xiaohongshu image note; returns MediaInfo with raw.image_urls."""
+    log = log or (lambda _m: None)
+    if cancel_flag and cancel_flag():
+        raise KeyboardInterrupt("用户取消下载")
+
+    url = resolve_xhs_url(url)
+    log("图文笔记：准备 Cookie / Edge 拦截…")
+    cfile = ensure_xhs_cookies(cookies_file, log=log)
+
+    from linkfetch.edge_session import intercept_media
+
+    result = intercept_media(
+        url,
+        url_predicates=[
+            lambda u: (
+                any(k in u for k in ("sns-webpic", "xhscdn.com", "ci.xiaohongshu.com"))
+                and any(ext in u.lower() for ext in (".jpg", ".jpeg", ".png", ".webp", "!"))
+                and "video" not in u.lower()
+                and "fe-static" not in u
+                and ".js" not in u
+            )
+        ],
+        wait_ms=12000,
+        log=log,
+    )
+    if cancel_flag and cancel_flag():
+        raise KeyboardInterrupt("用户取消下载")
+
+    raw_urls = list(dict.fromkeys(result.get("media_urls") or []))
+    # Prefer larger / original-ish images: drop tiny thumbs heuristics
+    images: list[str] = []
+    for u in raw_urls:
+        low = u.lower()
+        if any(x in low for x in ("avatar", "emoji", "icon", "logo")):
+            continue
+        # normalize webp preview to try keep
+        images.append(u)
+
+    if not images:
+        raise RuntimeError(
+            "未解析到图文图片。请确认是小红书图文笔记（非纯视频），"
+            "并尽量使用带 xsec_token 的完整链接。"
+        )
+
+    title = (result.get("title") or "小红书图文").replace(" - 小红书", "").strip()
+    formats = [
+        FormatOption(
+            format_id=f"img:{i}",
+            label=f"图片 {i+1}",
+            ext="jpg",
+            direct_url=u,
+        )
+        for i, u in enumerate(images)
+    ]
+    log(f"图文笔记：解析到 {len(images)} 张图")
+    return MediaInfo(
+        url=url,
+        title=title or "小红书图文",
+        extractor="XiaoHongShu/Images",
+        formats=formats,
+        raw={
+            "channel": "xhs_images",
+            "image_urls": images,
+            "cookies_file": result.get("cookies_path") or cfile,
+        },
+    )
+
+
+def download_xhs_images(
+    media: MediaInfo,
+    outdir: str,
+    *,
+    selected_indices: Optional[list[int]] = None,
+    progress_cb: Optional[ProgressCallback] = None,
+    cancel_flag: Optional[Callable[[], bool]] = None,
+    log: Optional[LogCallback] = None,
+) -> str:
+    log = log or (lambda _m: None)
+    images = list((media.raw or {}).get("image_urls") or [])
+    if not images:
+        raise RuntimeError("没有可下载的图片")
+
+    folder = os.path.join(outdir, safe_filename(media.title, "xhs_images"))
+    os.makedirs(folder, exist_ok=True)
+    indices = selected_indices if selected_indices is not None else list(range(len(images)))
+    total = len(indices)
+    saved = 0
+    for n, idx in enumerate(indices, 1):
+        if cancel_flag and cancel_flag():
+            raise KeyboardInterrupt("用户取消下载")
+        if idx < 0 or idx >= len(images):
+            continue
+        url = images[idx]
+        ext = "jpg"
+        low = url.lower()
+        if ".png" in low:
+            ext = "png"
+        elif ".webp" in low:
+            ext = "webp"
+        outpath = os.path.join(folder, f"{idx+1:02d}.{ext}")
+        log(f"图文笔记：下载 {n}/{total}")
+        if progress_cb:
+            progress_cb(
+                {
+                    "status": "downloading",
+                    "downloaded_bytes": n - 1,
+                    "total_bytes": total,
+                }
+            )
+        download_url(
+            url,
+            outpath,
+            headers={"Referer": "https://www.xiaohongshu.com/"},
+            cancel_flag=cancel_flag,
+        )
+        saved += 1
+    if progress_cb:
+        progress_cb({"status": "finished", "filename": folder})
+    log(f"图文笔记：完成，共 {saved} 张 → {folder}")
+    return folder
 
 
 def download_xhs(

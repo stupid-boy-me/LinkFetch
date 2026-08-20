@@ -20,12 +20,20 @@
 
 ## 环境
 
-- Windows 10/11
-- Python 3.10+（推荐官网 Windows 安装包）
-- 已安装 **Microsoft Edge**（抖音/小红书备用拦截依赖它，无需再下 Chromium）
-- 建议安装 [ffmpeg](https://ffmpeg.org/) 并加入 PATH（合并音视频、抽音频需要）
+### 发给别人的 exe（推荐）
 
-## 安装与运行
+对方**不需要**装 Python / ffmpeg / pip 依赖。只需：
+
+- Windows 10/11
+- 本机有 **Microsoft Edge**（抖音/小红书备用通道用系统 Edge，不随包附带浏览器）
+
+### 源码开发
+
+- Python 3.10+
+- `pip install -r requirements.txt`（含 ffmpeg 二进制、yt-dlp 扩展等）
+- Microsoft Edge
+
+## 安装与运行（开发）
 
 ```bash
 cd E:\AI\LinkFetch
@@ -36,13 +44,24 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 python main.py
 ```
 
-## 打包成 exe
+## 打包成 exe（单文件，可直接发给别人）
 
 ```bash
 build_exe.bat
 ```
 
-生成：`dist\LinkFetch\LinkFetch.exe`（可连同 `_internal` 文件夹一起分发）。
+生成：**`dist\LinkFetch.exe`**（一个文件即可分发）。
+
+**已打进 exe 的依赖（对方不用再装）：**
+- Python 运行时、yt-dlp、f2、httpx、playwright 驱动
+- ffmpeg（合并音视频）
+- mutagen / brotli / curl_cffi 等 yt-dlp 常用扩展
+- tkinterdnd2（拖拽）等
+
+**对方仍需自备：**
+- Windows 10/11
+- Microsoft Edge（仅抖音/小红书备用通道）
+- 首次启动会稍慢（单文件解压到临时目录）
 
 ## 使用提示
 

@@ -10,6 +10,7 @@ from yt_dlp import YoutubeDL
 
 from linkfetch.models import FormatOption, MediaInfo
 from linkfetch.platforms import detect_platform
+from linkfetch.ffmpeg_util import apply_ffmpeg_opts
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -75,7 +76,7 @@ def _base_opts(
         opts["cookiesfrombrowser"] = (cookies_from_browser,)
     if proxy:
         opts["proxy"] = proxy
-    return opts
+    return apply_ffmpeg_opts(opts)
 
 
 def find_default_cookies_files() -> list[str]:
