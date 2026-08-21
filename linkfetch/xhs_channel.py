@@ -105,7 +105,8 @@ def _collect_formats(info: dict[str, Any]) -> list[FormatOption]:
             label="仅音频（最佳）",
             is_audio_only=True,
             ext="m4a",
-            direct_url=options[0].direct_url if options else None,
+            # Never attach a video CDN URL here — download path must use yt-dlp extract.
+            direct_url=None,
         )
     )
     return options
@@ -318,39 +319,45 @@ def download_xhs_images(
     indices = selected_indices if selected_indices is not None else list(range(len(images)))
     total = len(indices)
     saved = 0
-    for n, idx in enumerate(indices, 1):
-        if cancel_flag and cancel_flag():
-            raise KeyboardInterrupt("用户取消下载")
-        if idx < 0 or idx >= len(images):
-            continue
-        url = images[idx]
-        ext = "jpg"
-        low = url.lower()
-        if ".png" in low:
-            ext = "png"
-        elif ".webp" in low:
-            ext = "webp"
-        outpath = os.path.join(folder, f"{idx+1:02d}.{ext}")
-        log(f"图文笔记：下载 {n}/{total}")
-        if progress_cb:
-            progress_cb(
-                {
-                    "status": "downloading",
-                    "downloaded_bytes": n - 1,
-                    "total_bytes": total,
-                }
+    cfile = (media.raw or {}).get("cookies_file") or ""
+    try:
+        for n, idx in enumerate(indices, 1):
+            if cancel_flag and cancel_flag():
+                raise KeyboardInterrupt("用户取消下载")
+            if idx < 0 or idx >= len(images):
+                continue
+            url = images[idx]
+            ext = "jpg"
+            low = url.lower()
+            if ".png" in low:
+                ext = "png"
+            elif ".webp" in low:
+                ext = "webp"
+            outpath = os.path.join(folder, f"{idx+1:02d}.{ext}")
+            log(f"图文笔记：下载 {n}/{total}")
+            if progress_cb:
+                progress_cb(
+                    {
+                        "status": "downloading",
+                        "downloaded_bytes": n - 1,
+                        "total_bytes": total,
+                    }
+                )
+            download_url(
+                url,
+                outpath,
+                headers={"Referer": "https://www.xiaohongshu.com/"},
+                cancel_flag=cancel_flag,
             )
-        download_url(
-            url,
-            outpath,
-            headers={"Referer": "https://www.xiaohongshu.com/"},
-            cancel_flag=cancel_flag,
-        )
-        saved += 1
-    if progress_cb:
-        progress_cb({"status": "finished", "filename": folder})
-    log(f"图文笔记：完成，共 {saved} 张 → {folder}")
-    return folder
+            saved += 1
+        if progress_cb:
+            progress_cb({"status": "finished", "filename": folder})
+        log(f"图文笔记：完成，共 {saved} 张 → {folder}")
+        return folder
+    finally:
+        from linkfetch.temp_cookies import cleanup_cookie_file
+
+        cleanup_cookie_file(cfile)
 
 
 def download_xhs(
@@ -375,12 +382,43 @@ def download_xhs(
     if fmt is None and media.formats:
         fmt = media.formats[0]
 
+    # Audio-only must go through yt-dlp (or fail), never save a video CDN as .m4a
+    if audio_only or (fmt and fmt.is_audio_only) or format_id in ("ba/b", "ba", "bestaudio"):
+        cfile = (media.raw or {}).get("cookies_file") or ""
+        opts = _ydl_opts(outdir, cfile)
+        opts["format"] = "ba/b"
+        opts["postprocessors"] = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "m4a",
+                "preferredquality": "0",
+            }
+        ]
+
+        def hook_audio(d: dict[str, Any]) -> None:
+            if cancel_flag and cancel_flag():
+                raise KeyboardInterrupt("用户取消下载")
+            if progress_cb:
+                progress_cb(d)
+
+        opts["progress_hooks"] = [hook_audio]
+        log("小红书通道：yt-dlp 抽取音频…")
+        try:
+            with YoutubeDL(opts) as ydl:
+                ydl.download([media.url])
+        finally:
+            from linkfetch.temp_cookies import cleanup_cookie_file
+
+            cleanup_cookie_file(cfile)
+        log("小红书通道：音频下载完成")
+        return outdir
+
     if fmt and fmt.direct_url and (
         format_id.startswith("direct:")
         or media.extractor.endswith("/Edge")
         or (fmt.direct_url and "xhscdn.com" in fmt.direct_url)
     ):
-        ext = "m4a" if audio_only else (fmt.ext or "mp4")
+        ext = fmt.ext or "mp4"
         outpath = os.path.join(outdir, safe_filename(media.title) + f".{ext}")
         log(f"小红书通道：直链下载 → {os.path.basename(outpath)}")
         download_url(
@@ -396,17 +434,8 @@ def download_xhs(
     # yt-dlp download path
     cfile = (media.raw or {}).get("cookies_file") or ""
     opts = _ydl_opts(outdir, cfile)
-    opts["format"] = "ba/b" if audio_only else (format_id or "bv*+ba/b")
-    if audio_only:
-        opts["postprocessors"] = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "m4a",
-                "preferredquality": "0",
-            }
-        ]
-    else:
-        opts["merge_output_format"] = "mp4"
+    opts["format"] = format_id or "bv*+ba/b"
+    opts["merge_output_format"] = "mp4"
 
     def hook(d: dict[str, Any]) -> None:
         if cancel_flag and cancel_flag():
@@ -416,7 +445,12 @@ def download_xhs(
 
     opts["progress_hooks"] = [hook]
     log("小红书通道：yt-dlp 下载…")
-    with YoutubeDL(opts) as ydl:
-        ydl.download([media.url])
+    try:
+        with YoutubeDL(opts) as ydl:
+            ydl.download([media.url])
+    finally:
+        from linkfetch.temp_cookies import cleanup_cookie_file
+
+        cleanup_cookie_file(cfile)
     log("小红书通道：下载完成")
     return outdir

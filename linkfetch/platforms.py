@@ -153,4 +153,6 @@ def detect_platform(url: str) -> str:
         return "douyin"
     if is_xhs_url(url):
         return "xhs"
+    if is_bilibili_url(url):
+        return "bilibili"
     return "generic"

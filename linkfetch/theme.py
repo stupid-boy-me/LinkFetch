@@ -1,29 +1,37 @@
-"""LinkFetch visual theme — Xiaohongshu (red / white) inspired."""
+"""LinkFetch visual theme — desktop-app density inspired by Bilibili layout."""
 
 from __future__ import annotations
 
-# Xiaohongshu primary
-RED = "#FF2442"
-RED_HOVER = "#FF4D66"
-RED_DARK = "#E01F39"
-RED_SOFT = "#FFF1F3"
+# Brand accent (keep LinkFetch red identity; B站-like layout density)
+RED = "#FB7299"
+RED_HOVER = "#FF85AD"
+RED_DARK = "#E45A84"
+RED_SOFT = "#FFF0F5"
+RED_SIDE = "#FFE4EC"
 
-# Neutrals
-BG = "#F5F5F5"
+# Neutrals — light desktop shell
+BG = "#F4F5F7"
+SIDEBAR = "#FFFFFF"
 CARD = "#FFFFFF"
-TEXT = "#333333"
-TEXT_MUTED = "#999999"
-BORDER = "#EEEEEE"
-TRACK = "#F0F0F0"
+TEXT = "#18191C"
+TEXT_MUTED = "#9499A0"
+TEXT_SEC = "#61666D"
+BORDER = "#E3E5E7"
+TRACK = "#E7E9EB"
+TOPBAR = "#FFFFFF"
+CHIP = "#F1F2F3"
 
 FONT_UI = ("Microsoft YaHei UI", 10)
 FONT_UI_BOLD = ("Microsoft YaHei UI", 10, "bold")
-FONT_TITLE = ("Microsoft YaHei UI", 20, "bold")
+FONT_TITLE = ("Microsoft YaHei UI", 18, "bold")
+FONT_SECTION = ("Microsoft YaHei UI", 13, "bold")
 FONT_SUB = ("Microsoft YaHei UI", 9)
+FONT_SIDE = ("Microsoft YaHei UI", 9, "bold")
 FONT_BTN = ("Microsoft YaHei UI", 11, "bold")
 FONT_BTN_SM = ("Microsoft YaHei UI", 10, "bold")
+FONT_HERO = ("Microsoft YaHei UI", 16, "bold")
 
-# Back-compat aliases used by older snippets
+# Back-compat aliases
 PINK = RED
 PINK_HOVER = RED_HOVER
 PINK_DARK = RED_DARK

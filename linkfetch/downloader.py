@@ -16,11 +16,17 @@ from linkfetch.ffmpeg_util import apply_ffmpeg_opts
 ProgressCallback = Callable[[dict[str, Any]], None]
 LogCallback = Callable[[str], None]
 
+# Prefer ≥1080p when unlocked by login/membership; else best available.
+FORMAT_BEST = "bv*+ba/b"
+FORMAT_PREF_1080 = "bv*[height>=1080]+ba/bv*+ba/b"
+
 # Re-export for existing imports
 __all__ = [
     "Downloader",
     "FormatOption",
     "MediaInfo",
+    "FORMAT_BEST",
+    "FORMAT_PREF_1080",
     "find_default_cookies_files",
     "is_cookie_related_error",
     "looks_like_url",
@@ -225,12 +231,23 @@ def _collect_formats(info: dict[str, Any]) -> list[FormatOption]:
                 )
             )
 
-    # Always offer best
-    if "bv*+ba/b" not in seen:
+    # Prefer ≥1080p when available, else best merge
+    if FORMAT_PREF_1080 not in seen:
         options.insert(
             0,
             FormatOption(
-                format_id="bv*+ba/b",
+                format_id=FORMAT_PREF_1080,
+                label="优先 1080P+（自动合并音视频）",
+                height=1080,
+                ext="mp4",
+                is_audio_only=False,
+            ),
+        )
+    if FORMAT_BEST not in seen:
+        options.insert(
+            1 if options and options[0].format_id == FORMAT_PREF_1080 else 0,
+            FormatOption(
+                format_id=FORMAT_BEST,
                 label="最佳画质（自动合并音视频）",
                 height=None,
                 ext="mp4",
@@ -412,7 +429,8 @@ class Downloader:
                     playlist_count=len(entries),
                     entries=entries,
                     formats=[
-                        FormatOption("bv*+ba/b", "最佳画质（自动合并音视频）"),
+                        FormatOption(FORMAT_PREF_1080, "优先 1080P+（自动合并音视频）", height=1080),
+                        FormatOption(FORMAT_BEST, "最佳画质（自动合并音视频）"),
                         FormatOption("ba/b", "仅音频（最佳）", is_audio_only=True, ext="m4a"),
                     ],
                     subtitles=[],
