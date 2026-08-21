@@ -19,6 +19,7 @@ from tkinter import (
 from typing import Optional
 
 from linkfetch import __app_name__, __version__
+from linkfetch import license_gate
 from linkfetch import theme as T
 from linkfetch.batch_channel import BatchItem, BatchList, extract_batch_list
 from linkfetch.downloader import (
@@ -156,6 +157,11 @@ class LinkFetchApp:
 
         self._build_ui()
         self._setup_dnd()
+        license_gate.ensure_first_run()
+        self._refresh_license_ui()
+        self._schedule_license_tick()
+        if not license_gate.has_pro_access() and not license_gate.is_licensed():
+            self.root.after(600, self._maybe_show_trial_notice)
 
     def _set_window_icon(self) -> None:
         ico = _asset_path("assets", "linkfetch.ico")
@@ -298,6 +304,17 @@ class LinkFetchApp:
 
         side_bot = Frame(side, bg=T.SIDEBAR, padx=8, pady=12)
         side_bot.pack(side="bottom", fill="x")
+        self.license_var = StringVar(value=license_gate.status_label())
+        Label(
+            side_bot,
+            textvariable=self.license_var,
+            bg=T.SIDEBAR,
+            fg=T.RED,
+            font=T.FONT_SUB,
+            wraplength=96,
+            justify="center",
+        ).pack(pady=(0, 6))
+        self._ghost_button(side_bot, "激活", self.on_activate_license).pack(fill="x", pady=(0, 8))
         Label(side_bot, text=f"v{__version__}", bg=T.SIDEBAR, fg=T.TEXT_MUTED, font=T.FONT_SUB).pack()
 
         # —— right main column ——
@@ -583,12 +600,73 @@ class LinkFetchApp:
             except Exception:
                 pass
 
+    def _refresh_license_ui(self) -> None:
+        if hasattr(self, "license_var"):
+            self.license_var.set(license_gate.status_label())
+
+    def _schedule_license_tick(self) -> None:
+        self._refresh_license_ui()
+        self.root.after(1000, self._schedule_license_tick)
+
+    def _maybe_show_trial_notice(self) -> None:
+        if license_gate.is_licensed():
+            return
+        if license_gate.is_trial_active():
+            messagebox.showinfo(
+                "试用说明",
+                f"欢迎使用 LinkFetch！\n\n"
+                f"当前为试用期，剩余 {license_gate.trial_hms_left()}"
+                f"（共 {license_gate._trial_duration_label()}），全功能可用。\n"
+                f"到期后免费版仅保留「单链接」。\n"
+                f"购买激活码后可一次性买断解锁全部功能。",
+            )
+        elif not license_gate.has_pro_access():
+            messagebox.showinfo(
+                "免费版说明",
+                "试用已结束。\n\n"
+                "当前免费版仅可使用「单链接」。\n"
+                "图文 / 合集主页 / 扫码登录需购买激活码永久解锁。\n"
+                "请点击左侧「激活」输入激活码。",
+            )
+
+    def on_activate_license(self) -> None:
+        if license_gate.is_licensed():
+            messagebox.showinfo("已激活", license_gate.status_detail())
+            return
+        key = simpledialog.askstring(
+            "买断激活",
+            "请输入激活码（格式 LF1-xxxx-xxxx-xxxx-xxxx）：",
+            parent=self.root,
+        )
+        if key is None:
+            return
+        ok, msg = license_gate.activate(key)
+        self._refresh_license_ui()
+        if ok:
+            messagebox.showinfo("激活成功", msg)
+            self.status_var.set("已买断激活")
+        else:
+            messagebox.showerror("激活失败", msg)
+
+    def _ensure_pro(self, feature_name: str = "该功能") -> bool:
+        if license_gate.has_pro_access():
+            return True
+        messagebox.showwarning(
+            "需要买断或试用",
+            f"「{feature_name}」不可用。\n\n{license_gate.require_pro_message()}",
+        )
+        return False
+
     def _select_mode(self, mode: str) -> None:
         if mode == "vip":
             if not VIP_MODE_ENABLED:
                 return
             if not self._ensure_vip_unlocked():
                 return
+        if mode in ("images", "batch") and not self._ensure_pro(
+            "图文" if mode == "images" else "合集主页"
+        ):
+            return
         self.mode_var.set(mode)
         self.on_mode_change()
 
@@ -1016,6 +1094,8 @@ class LinkFetchApp:
 
     def on_qr_login(self) -> None:
         """Open Edge for QR login; save cookies for later parse/download."""
+        if not self._ensure_pro("扫码登录"):
+            return
         if self._worker and self._worker.is_alive():
             messagebox.showinfo("提示", "当前有任务进行中，请稍后再扫码登录。")
             return
@@ -1140,6 +1220,10 @@ class LinkFetchApp:
             return
 
         mode = self.mode_var.get()
+        if mode in ("images", "batch") and not self._ensure_pro(
+            "图文" if mode == "images" else "合集主页"
+        ):
+            return
         if VIP_MODE_ENABLED and mode == "vip":
             if not self._vip_unlocked and not self._ensure_vip_unlocked():
                 return
@@ -1294,6 +1378,11 @@ class LinkFetchApp:
             return
         mode = self.mode_var.get()
         self._cancel = False
+
+        if mode in ("images", "batch") and not self._ensure_pro(
+            "图文" if mode == "images" else "合集主页"
+        ):
+            return
 
         if mode == "images":
             if not self.media or (self.media.raw or {}).get("channel") != "xhs_images":
